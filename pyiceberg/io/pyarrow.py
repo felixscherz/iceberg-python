@@ -837,10 +837,12 @@ class _ConvertToIceberg(PyArrowSchemaVisitor[Union[IcebergType, Schema]]):
 
     _field_names: List[str]
     _name_mapping: Optional[NameMapping]
+    _list_element_name: Optional[str]
 
     def __init__(self, name_mapping: Optional[NameMapping] = None) -> None:
         self._field_names = []
         self._name_mapping = name_mapping
+        self._list_element_name = None
 
     def _field_id(self, field: pa.Field) -> int:
         if self._name_mapping:
@@ -864,7 +866,7 @@ class _ConvertToIceberg(PyArrowSchemaVisitor[Union[IcebergType, Schema]]):
 
     def list(self, list_type: pa.ListType, element_result: IcebergType) -> ListType:
         element_field = list_type.value_field
-        self._field_names.append(LIST_ELEMENT_NAME)
+        self._field_names.append(element_field.name)
         element_id = self._field_id(element_field)
         self._field_names.pop()
         return ListType(element_id, element_result, element_required=not element_field.nullable)

@@ -38,6 +38,7 @@ from typing import (
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+from pyiceberg.typedef import EMPTY_DICT
 import pytest
 
 from pyiceberg.avro import (
@@ -48,6 +49,7 @@ from pyiceberg.avro import (
     STRUCT_INT64,
 )
 from pyiceberg.io.pyarrow import (
+    DataFileStatistics,
     MetricModeTypes,
     MetricsMode,
     PyArrowStatisticsCollector,
@@ -69,7 +71,10 @@ from pyiceberg.types import (
     BooleanType,
     FloatType,
     IntegerType,
+    ListType,
+    NestedField,
     StringType,
+    StructType,
 )
 from pyiceberg.utils.datetime import date_to_days, datetime_to_micros, time_to_micros
 
@@ -755,3 +760,45 @@ def test_stats_types(table_schema_nested: Schema) -> None:
 #     assert odd.lower_bounds[1] == STRUCT_INT64.pack(1)
 #     assert len(odd.upper_bounds) == 1
 #     assert odd.upper_bounds[1] == STRUCT_INT64.pack(7)
+
+
+def test_data_file_statistics_from_parquet_metadata_list(tmp_path_factory: pytest.TempPathFactory) -> None:
+    pyarrow_list = pa.schema([
+        pa.field("extras", pa.list_(pa.field("element", pa.struct([pa.field("key", pa.string()), pa.field("value", pa.string())]))))
+    ])
+    tbl = pa.Table.from_pylist([{'some_list': [{"key": "a", "value": "b"}]}], schema=pyarrow_list)
+    file_path = tmp_path_factory.mktemp('test_statistics') / "test.parquet"
+    pq.write_table(tbl, file_path)
+
+    parquet_metadata = pq.read_metadata(file_path)
+
+    iceberg_schema = Schema(
+        NestedField(
+            1,
+            "extras",
+            ListType(
+                10,
+                StructType(
+                    NestedField(10, "key", StringType()),
+                    NestedField(11, "value", StringType()),
+                ),
+                element_required=False,
+            ),
+        )
+    )
+
+    statistics = data_file_statistics_from_parquet_metadata(
+        parquet_metadata=parquet_metadata,
+        stats_columns=compute_statistics_plan(iceberg_schema, EMPTY_DICT),
+        parquet_column_mapping=parquet_path_to_id_mapping(iceberg_schema),
+    )
+
+    assert statistics == DataFileStatistics(
+        record_count=1,
+        column_sizes={10: 51, 11: 51},
+        value_counts={10: 1, 11: 1},
+        null_value_counts={10: 1, 11: 1},
+        nan_value_counts={},
+        column_aggregates={},
+        split_offsets=[4],
+    )

@@ -65,6 +65,7 @@ from pyiceberg.io.pyarrow import (
     _read_deletes,
     bin_pack_arrow_table,
     expression_to_pyarrow,
+    parquet_path_to_id_mapping,
     project_table,
     schema_to_pyarrow,
 )
@@ -1717,3 +1718,31 @@ def test_bin_pack_arrow_table(arrow_table_with_null: pa.Table) -> None:
     # and will produce half the number of files if we double the target size
     bin_packed = bin_pack_arrow_table(bigger_arrow_tbl, target_file_size=arrow_table_with_null.nbytes * 2)
     assert len(list(bin_packed)) == 5
+
+def test_parquet_path_to_id_mapping2():
+    from pyiceberg.io.pyarrow import _ConvertToIcebergWithoutIDs, visit_pyarrow
+    pyarrow_list = pa.schema([
+            pa.field("extras", pa.list_(pa.field("item", pa.struct([pa.field("key", pa.string()), pa.field("value", pa.string())]))))
+        ])
+
+    # this is used in Catalog._convert_schema_if_needed
+    schema: Schema = visit_pyarrow(pyarrow_list, _ConvertToIcebergWithoutIDs())  # type: ignore
+    # _ConvertToIceberg.list uses a default name LIST_ELEMENT_NAME
+    print(schema)
+    mapping = parquet_path_to_id_mapping(schema)
+    print(mapping)
+    assert "extras.list.item.key" in mapping
+
+
+def test_parquet_path_to_id_mapping():
+    from pyiceberg.catalog import Catalog
+    pyarrow_list = pa.schema([
+            pa.field("extras", pa.list_(pa.field("item", pa.struct([pa.field("key", pa.string()), pa.field("value", pa.string())]))))
+        ])
+
+    schema = Catalog._convert_schema_if_needed(pyarrow_list)
+    print(schema)
+
+    mapping = parquet_path_to_id_mapping(schema)
+    print(mapping)
+    assert "extras.list.item.key" in mapping
